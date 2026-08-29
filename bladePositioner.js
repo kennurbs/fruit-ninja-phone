@@ -8,8 +8,12 @@ function createBladePositioner(canvas) {
   const STROKE_MS = 220;
   const STROKE_LENGTH = 240; // px, centered on the cursor
   const TILT_RANGE_DEG = 60; // tilt (in degrees) that sweeps from center to edge
+  const AIM_LOOKBACK_MS = 120; // strike uses where you were aiming just before
+                                // the swing's own rotation dragged the tilt away
+  const HISTORY_MS = 500;
 
   let cursor = { x: canvas.width / 2, y: canvas.height / 2 };
+  let history = []; // { t, x, y } — recent cursor positions
   let strokes = []; // { angle, cx, cy, start }
 
   function clamp(value, min, max) {
@@ -21,6 +25,19 @@ function createBladePositioner(canvas) {
     const h = canvas.height;
     cursor.x = clamp(w / 2 + (gamma / TILT_RANGE_DEG) * (w / 2), 0, w);
     cursor.y = clamp(h / 2 + (beta / TILT_RANGE_DEG) * (h / 2), 0, h);
+
+    const now = performance.now();
+    history.push({ t: now, x: cursor.x, y: cursor.y });
+    while (history.length && now - history[0].t > HISTORY_MS) history.shift();
+  }
+
+  function aimPositionFor(targetTime) {
+    if (history.length === 0) return cursor;
+    let closest = history[0];
+    for (const h of history) {
+      if (Math.abs(h.t - targetTime) < Math.abs(closest.t - targetTime)) closest = h;
+    }
+    return closest;
   }
 
   const ANGLE_BY_DIRECTION = {
@@ -40,8 +57,9 @@ function createBladePositioner(canvas) {
 
   function triggerStroke(direction) {
     const angle = ANGLE_BY_DIRECTION[direction] ?? 0;
-    const { x: cx, y: cy } = cursor;
-    strokes.push({ angle, cx, cy, start: performance.now() });
+    const now = performance.now();
+    const { x: cx, y: cy } = aimPositionFor(now - AIM_LOOKBACK_MS);
+    strokes.push({ angle, cx, cy, start: now });
     return endpointsFor(cx, cy, angle);
   }
 
