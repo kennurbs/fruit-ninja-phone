@@ -7,7 +7,7 @@ function createBladePositioner(canvas) {
   const ctx = canvas.getContext('2d');
   const STROKE_MS = 220;
   const STROKE_LENGTH = 240; // px, centered on the cursor
-  const TILT_RANGE_DEG = 30; // tilt (in degrees) that sweeps from center to edge
+  const TILT_RANGE_DEG = 60; // tilt (in degrees) that sweeps from center to edge
 
   let cursor = { x: canvas.width / 2, y: canvas.height / 2 };
   let strokes = []; // { angle, cx, cy, start }
