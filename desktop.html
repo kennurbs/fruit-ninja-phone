@@ -255,10 +255,14 @@ function connectWebSocket() {
       const y = Number(data.y) || 0;
       const z = Number(data.z) || 0;
       const t = Number(data.t) || Date.now();
+      const beta = Number(data.beta) || 0;
+      const gamma = Number(data.gamma) || 0;
 
       xEl.textContent = x.toFixed(2);
       yEl.textContent = y.toFixed(2);
       zEl.textContent = z.toFixed(2);
+
+      blade.updateOrientation(beta, gamma);
 
       const mag = detectSlice({ x, y, z, t }, threshold);
       magEl.textContent = mag.toFixed(2);

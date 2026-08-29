@@ -45,6 +45,23 @@ let ws = null;
 let lastSend = 0;
 const SEND_INTERVAL_MS = 1000 / 45; // ~45 msg/sec, within the 30-60 gotcha range
 
+// Orientation baseline: wherever the phone is held when Start is tapped
+// becomes "center" — we send tilt relative to that, not absolute angles.
+let orientationBaseline = null;
+let latestTilt = { beta: 0, gamma: 0 };
+
+function onDeviceOrientation(event) {
+  const beta = event.beta ?? 0;
+  const gamma = event.gamma ?? 0;
+  if (orientationBaseline === null) {
+    orientationBaseline = { beta, gamma };
+  }
+  latestTilt = {
+    beta: beta - orientationBaseline.beta,
+    gamma: gamma - orientationBaseline.gamma
+  };
+}
+
 function setStatus(text, isErr) {
   statusEl.textContent = text;
   statusEl.classList.toggle('err', !!isErr);
@@ -70,14 +87,12 @@ function onDeviceMotion(event) {
   lastSend = now;
 
   const acc = event.accelerationIncludingGravity || {};
-  const rot = event.rotationRate || {};
   const payload = {
     x: acc.x ?? 0,
     y: acc.y ?? 0,
     z: acc.z ?? 0,
-    alpha: rot.alpha ?? 0,
-    beta: rot.beta ?? 0,
-    gamma: rot.gamma ?? 0,
+    beta: latestTilt.beta,
+    gamma: latestTilt.gamma,
     t: now
   };
 
@@ -91,30 +106,42 @@ function onDeviceMotion(event) {
 
 function startMotion() {
   window.addEventListener('devicemotion', onDeviceMotion);
+  window.addEventListener('deviceorientation', onDeviceOrientation);
   startBtn.style.display = 'none';
   readoutEl.style.display = 'block';
   connectWebSocket();
   requestWakeLock();
 }
 
+function requestMotionPermission() {
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    return DeviceMotionEvent.requestPermission();
+  }
+  return Promise.resolve('granted');
+}
+
+function requestOrientationPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    return DeviceOrientationEvent.requestPermission();
+  }
+  return Promise.resolve('granted');
+}
+
 startBtn.addEventListener('click', () => {
   // iOS requires requestPermission() to be called directly inside a user
   // gesture handler, and only works over HTTPS. No permission API on
-  // Android/desktop — just proceed straight to listening.
-  if (typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission()
-      .then((result) => {
-        if (result === 'granted') {
-          startMotion();
-        } else {
-          setStatus('Motion permission denied', true);
-        }
-      })
-      .catch((err) => setStatus(`Permission error: ${err.message}`, true));
-  } else {
-    startMotion();
-  }
+  // Android/desktop — both resolve to 'granted' immediately in that case.
+  Promise.all([requestMotionPermission(), requestOrientationPermission()])
+    .then(([motionResult, orientationResult]) => {
+      if (motionResult === 'granted' && orientationResult === 'granted') {
+        startMotion();
+      } else {
+        setStatus('Motion/orientation permission denied', true);
+      }
+    })
+    .catch((err) => setStatus(`Permission error: ${err.message}`, true));
 });
 </script>
 </body>
