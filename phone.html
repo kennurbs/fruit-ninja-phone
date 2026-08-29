@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Fruit Ninja — Phone</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #111; color: #eee;
+    font-family: -apple-system, system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  #startBtn {
+    font-size: 1.5rem; padding: 1.2em 2em;
+    border-radius: 12px; border: none;
+    background: #e63946; color: white;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #status {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 0.75em; font-size: 0.9rem;
+    background: #222; color: #9be89b;
+  }
+  #status.err { color: #ff6b6b; }
+  #readout {
+    display: none;
+    font-size: 1.2rem;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <div id="status">Not connected</div>
+  <button id="startBtn">Start</button>
+  <div id="readout"></div>
+
+<script>
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+const readoutEl = document.getElementById('readout');
+
+let ws = null;
+let lastSend = 0;
+const SEND_INTERVAL_MS = 1000 / 45; // ~45 msg/sec, within the 30-60 gotcha range
+
+function setStatus(text, isErr) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}`);
+  ws.addEventListener('open', () => setStatus('Connected — swing away'));
+  ws.addEventListener('close', () => setStatus('Disconnected', true));
+  ws.addEventListener('error', () => setStatus('WebSocket error', true));
+}
+
+function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').catch(() => {});
+  }
+}
+
+function onDeviceMotion(event) {
+  const now = Date.now();
+  if (now - lastSend < SEND_INTERVAL_MS) return;
+  lastSend = now;
+
+  const acc = event.accelerationIncludingGravity || {};
+  const rot = event.rotationRate || {};
+  const payload = {
+    x: acc.x ?? 0,
+    y: acc.y ?? 0,
+    z: acc.z ?? 0,
+    alpha: rot.alpha ?? 0,
+    beta: rot.beta ?? 0,
+    gamma: rot.gamma ?? 0,
+    t: now
+  };
+
+  readoutEl.textContent =
+    `x: ${payload.x.toFixed(2)}  y: ${payload.y.toFixed(2)}  z: ${payload.z.toFixed(2)}`;
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+}
+
+function startMotion() {
+  window.addEventListener('devicemotion', onDeviceMotion);
+  startBtn.style.display = 'none';
+  readoutEl.style.display = 'block';
+  connectWebSocket();
+  requestWakeLock();
+}
+
+startBtn.addEventListener('click', () => {
+  // iOS requires requestPermission() to be called directly inside a user
+  // gesture handler, and only works over HTTPS. No permission API on
+  // Android/desktop — just proceed straight to listening.
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission()
+      .then((result) => {
+        if (result === 'granted') {
+          startMotion();
+        } else {
+          setStatus('Motion permission denied', true);
+        }
+      })
+      .catch((err) => setStatus(`Permission error: ${err.message}`, true));
+  } else {
+    startMotion();
+  }
+});
+</script>
+</body>
+</html>

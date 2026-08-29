@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fruit Ninja — Desktop</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0d1117; color: #eee;
+    font-family: -apple-system, system-ui, sans-serif;
+  }
+  #status {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 0.6em; font-size: 1rem; text-align: center;
+    background: #161b22; color: #9be89b;
+    z-index: 10;
+  }
+  #status.err { color: #ff6b6b; }
+
+  #main {
+    padding-top: 3.2em;
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: 0.5em;
+  }
+
+  #xyz { display: flex; gap: 2em; }
+  .row { font-size: 2.2vw; font-family: 'Courier New', monospace; }
+  .x { color: #ff6b6b; }
+  .y { color: #6bffb0; }
+  .z { color: #6bb0ff; }
+  .label { opacity: 0.6; font-size: 0.6em; }
+
+  #magnitude {
+    font-size: 5vw;
+    font-family: 'Courier New', monospace;
+    color: #ffd166;
+  }
+  #magnitude .label { opacity: 0.6; font-size: 0.4em; }
+
+  #graphWrap {
+    width: 90vw; max-width: 1100px;
+  }
+  canvas {
+    width: 100%;
+    background: #161b22;
+    border-radius: 8px;
+    display: block;
+  }
+  #graph { height: 260px; }
+
+  #gameWrap {
+    width: 90vw; max-width: 1100px;
+    position: relative;
+  }
+  #gameCanvas { height: 420px; background: #000; }
+  #scoreOverlay {
+    position: absolute; top: 12px; left: 12px;
+    font-family: 'Courier New', monospace;
+    font-size: 1.4rem;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 0.2em 0.6em;
+    border-radius: 6px;
+  }
+
+  #gameOverOverlay {
+    display: none;
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    border-radius: 8px;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0.6em;
+    text-align: center;
+  }
+  #gameOverOverlay.show { display: flex; }
+  #gameOverOverlay h1 {
+    margin: 0;
+    font-size: 2.4rem;
+    color: #ff6b6b;
+    letter-spacing: 0.05em;
+  }
+  #gameOverOverlay p {
+    margin: 0;
+    font-family: 'Courier New', monospace;
+    font-size: 1.3rem;
+    color: #ffd166;
+  }
+  #playAgainBtn {
+    margin-top: 0.4em;
+    font-size: 1rem;
+    padding: 0.5em 1.2em;
+  }
+
+  #controls {
+    width: 90vw; max-width: 1100px;
+    display: flex; align-items: center; gap: 1em;
+    font-size: 0.95rem;
+  }
+  #controls input[type="range"] { flex: 1; }
+  #thresholdVal { min-width: 3em; text-align: right; font-family: 'Courier New', monospace; }
+
+  #counterRow {
+    width: 90vw; max-width: 1100px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 1.1rem;
+  }
+  #swingCount { color: #ffd166; font-weight: bold; }
+  button {
+    background: #21262d; color: #eee; border: 1px solid #30363d;
+    border-radius: 6px; padding: 0.4em 0.9em; cursor: pointer;
+  }
+  button:hover { background: #30363d; }
+</style>
+</head>
+<body>
+  <div id="status">Waiting for phone...</div>
+
+  <div id="main">
+    <div id="gameWrap">
+      <canvas id="gameCanvas" width="1200" height="500"></canvas>
+      <div id="scoreOverlay">Score: 0</div>
+      <div id="gameOverOverlay">
+        <h1>GAME OVER</h1>
+        <p id="finalScore">Final Score: 0</p>
+        <button id="playAgainBtn">Play Again</button>
+      </div>
+    </div>
+
+    <div id="xyz">
+      <div class="row x"><span class="label">x</span> <span id="x">0.00</span></div>
+      <div class="row y"><span class="label">y</span> <span id="y">0.00</span></div>
+      <div class="row z"><span class="label">z</span> <span id="z">0.00</span></div>
+    </div>
+
+    <div id="magnitude"><span class="label">|accel|</span> <span id="mag">0.00</span></div>
+
+    <div id="graphWrap">
+      <canvas id="graph" width="1100" height="260"></canvas>
+    </div>
+
+    <div id="controls">
+      <label for="threshold">Threshold</label>
+      <input type="range" id="threshold" min="1" max="40" step="0.5" value="33">
+      <span id="thresholdVal">33.0</span>
+    </div>
+
+    <div id="counterRow">
+      <div>Swings past threshold: <span id="swingCount">0</span></div>
+      <button id="resetBtn">Reset count</button>
+    </div>
+  </div>
+
+<script src="gestureDetector.js"></script>
+<script src="bladePositioner.js"></script>
+<script src="fruitField.js"></script>
+<script src="audioFx.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const xEl = document.getElementById('x');
+const yEl = document.getElementById('y');
+const zEl = document.getElementById('z');
+const magEl = document.getElementById('mag');
+const thresholdInput = document.getElementById('threshold');
+const thresholdValEl = document.getElementById('thresholdVal');
+const swingCountEl = document.getElementById('swingCount');
+const resetBtn = document.getElementById('resetBtn');
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+const gameCanvas = document.getElementById('gameCanvas');
+const gameCtx = gameCanvas.getContext('2d');
+const scoreOverlayEl = document.getElementById('scoreOverlay');
+const gameOverOverlayEl = document.getElementById('gameOverOverlay');
+const finalScoreEl = document.getElementById('finalScore');
+const playAgainBtn = document.getElementById('playAgainBtn');
+const blade = createBladePositioner(gameCanvas);
+const fruitField = createFruitField(gameCanvas);
+const audioFx = createAudioFx();
+
+['click', 'keydown', 'touchstart'].forEach((evt) =>
+  document.addEventListener(evt, () => audioFx.unlock(), { once: true })
+);
+
+const WINDOW_MS = 6000;   // how much history the graph shows
+const COOLDOWN_MS = 150;  // matches the real gesture detector's debounce
+
+let samples = []; // { t, mag }
+let threshold = parseFloat(thresholdInput.value);
+let swingCount = 0;
+let gameOver = false;
+
+const detectSlice = createGestureDetector({
+  cooldownMs: COOLDOWN_MS,
+  onSlice: (dir) => {
+    console.log(`SLICE ${dir}`);
+    swingCount++;
+    swingCountEl.textContent = String(swingCount);
+    if (gameOver) return;
+
+    audioFx.playWhoosh();
+
+    const seg = blade.triggerStroke(dir);
+    const { hits, bombHit } = fruitField.sliceCheck(seg.x1, seg.y1, seg.x2, seg.y2);
+
+    if (bombHit) {
+      audioFx.playExplosion();
+      gameOver = true;
+      finalScoreEl.textContent = `Final Score: ${fruitField.getScore()}`;
+      gameOverOverlayEl.classList.add('show');
+    } else if (hits > 0) {
+      audioFx.playPop(1 + 0.15 * (hits - 1));
+    }
+  }
+});
+
+playAgainBtn.addEventListener('click', () => {
+  fruitField.reset();
+  gameOver = false;
+  gameOverOverlayEl.classList.remove('show');
+});
+
+function setStatus(text, isErr) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+thresholdInput.addEventListener('input', () => {
+  threshold = parseFloat(thresholdInput.value);
+  thresholdValEl.textContent = threshold.toFixed(1);
+});
+
+resetBtn.addEventListener('click', () => {
+  swingCount = 0;
+  swingCountEl.textContent = '0';
+});
+
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}`);
+
+  ws.addEventListener('open', () => setStatus('Connected — waiting for motion data'));
+  ws.addEventListener('close', () => {
+    setStatus('Disconnected — retrying...', true);
+    setTimeout(connectWebSocket, 1000);
+  });
+  ws.addEventListener('error', () => setStatus('WebSocket error', true));
+
+  ws.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      setStatus('Receiving');
+
+      const x = Number(data.x) || 0;
+      const y = Number(data.y) || 0;
+      const z = Number(data.z) || 0;
+      const t = Number(data.t) || Date.now();
+
+      xEl.textContent = x.toFixed(2);
+      yEl.textContent = y.toFixed(2);
+      zEl.textContent = z.toFixed(2);
+
+      const mag = detectSlice({ x, y, z, t }, threshold);
+      magEl.textContent = mag.toFixed(2);
+
+      samples.push({ t, mag });
+      const cutoff = t - WINDOW_MS;
+      while (samples.length && samples[0].t < cutoff) samples.shift();
+    } catch (e) {
+      // ignore malformed messages
+    }
+  });
+}
+
+function drawGraph() {
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const now = Date.now();
+  const oldest = now - WINDOW_MS;
+
+  // Auto-scale y-axis, but never shrink below a sane floor so the line
+  // doesn't jump around wildly between quiet and noisy swings.
+  let maxMag = 20;
+  for (const s of samples) if (s.mag > maxMag) maxMag = s.mag;
+  maxMag *= 1.15;
+
+  // Gridlines every second
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  for (let dt = 0; dt <= WINDOW_MS; dt += 1000) {
+    const gx = w - (dt / WINDOW_MS) * w;
+    ctx.beginPath();
+    ctx.moveTo(gx, 0);
+    ctx.lineTo(gx, h);
+    ctx.stroke();
+  }
+
+  // Threshold line
+  const ty = h - (threshold / maxMag) * h;
+  ctx.strokeStyle = '#ff6b6b';
+  ctx.setLineDash([6, 4]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(w, ty);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Magnitude line
+  if (samples.length > 1) {
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    samples.forEach((s, i) => {
+      const px = w - ((now - s.t) / WINDOW_MS) * w;
+      const py = h - (s.mag / maxMag) * h;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  }
+
+  requestAnimationFrame(drawGraph);
+}
+
+function renderGame(now) {
+  gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+  fruitField.update(now);
+  fruitField.render();
+  blade.render();
+
+  const combo = fruitField.getCombo();
+  scoreOverlayEl.textContent = combo > 1
+    ? `Score: ${fruitField.getScore()}   Combo: ${combo}`
+    : `Score: ${fruitField.getScore()}`;
+
+  requestAnimationFrame(renderGame);
+}
+
+connectWebSocket();
+requestAnimationFrame(drawGraph);
+requestAnimationFrame(renderGame);
+</script>
+</body>
+</html>
