@@ -53,16 +53,33 @@
     width: 90vw; max-width: 1100px;
     position: relative;
   }
-  #gameCanvas { height: 420px; background: #000; }
+  #gameCanvas {
+    height: 420px;
+    background:
+      radial-gradient(ellipse at center, rgba(80, 40, 20, 0.5) 0%, rgba(20, 8, 4, 0.85) 75%),
+      repeating-linear-gradient(0deg, #2a160c 0px, #2a160c 2px, #24130a 2px, #24130a 4px);
+  }
   #scoreOverlay {
     position: absolute; top: 12px; left: 12px;
-    font-family: 'Courier New', monospace;
-    font-size: 1.4rem;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.4);
-    padding: 0.2em 0.6em;
+    font-family: Georgia, serif;
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: #ffe6c2;
+    background: rgba(40, 10, 10, 0.55);
+    border: 1px solid rgba(255, 200, 140, 0.3);
+    padding: 0.25em 0.7em;
     border-radius: 6px;
   }
+  #livesOverlay {
+    position: absolute; top: 12px; right: 12px;
+    font-size: 1.4rem;
+    letter-spacing: 0.15em;
+    background: rgba(40, 10, 10, 0.55);
+    border: 1px solid rgba(255, 200, 140, 0.3);
+    padding: 0.15em 0.6em;
+    border-radius: 6px;
+  }
+  #livesOverlay .lost { opacity: 0.25; filter: grayscale(1); }
 
   #gameOverOverlay {
     display: none;
@@ -120,7 +137,8 @@
   <div id="main">
     <div id="gameWrap">
       <canvas id="gameCanvas" width="1200" height="500"></canvas>
-      <div id="scoreOverlay">Score: 0</div>
+      <div id="scoreOverlay">🍉 Score: 0</div>
+      <div id="livesOverlay">🍉🍉🍉</div>
       <div id="gameOverOverlay">
         <h1>GAME OVER</h1>
         <p id="finalScore">Final Score: 0</p>
@@ -171,6 +189,7 @@ const ctx = canvas.getContext('2d');
 const gameCanvas = document.getElementById('gameCanvas');
 const gameCtx = gameCanvas.getContext('2d');
 const scoreOverlayEl = document.getElementById('scoreOverlay');
+const livesOverlayEl = document.getElementById('livesOverlay');
 const gameOverOverlayEl = document.getElementById('gameOverOverlay');
 const finalScoreEl = document.getElementById('finalScore');
 const playAgainBtn = document.getElementById('playAgainBtn');
@@ -188,7 +207,6 @@ const COOLDOWN_MS = 150;  // matches the real gesture detector's debounce
 let samples = []; // { t, mag }
 let threshold = parseFloat(thresholdInput.value);
 let swingCount = 0;
-let gameOver = false;
 
 const detectSlice = createGestureDetector({
   cooldownMs: COOLDOWN_MS,
@@ -196,7 +214,7 @@ const detectSlice = createGestureDetector({
     console.log(`SLICE ${dir}`);
     swingCount++;
     swingCountEl.textContent = String(swingCount);
-    if (gameOver) return;
+    if (fruitField.isGameOver()) return;
 
     audioFx.playWhoosh();
 
@@ -205,9 +223,6 @@ const detectSlice = createGestureDetector({
 
     if (bombHit) {
       audioFx.playExplosion();
-      gameOver = true;
-      finalScoreEl.textContent = `Final Score: ${fruitField.getScore()}`;
-      gameOverOverlayEl.classList.add('show');
     } else if (hits > 0) {
       audioFx.playPop(1 + 0.15 * (hits - 1));
     }
@@ -216,7 +231,6 @@ const detectSlice = createGestureDetector({
 
 playAgainBtn.addEventListener('click', () => {
   fruitField.reset();
-  gameOver = false;
   gameOverOverlayEl.classList.remove('show');
 });
 
@@ -338,8 +352,18 @@ function renderGame(now) {
 
   const combo = fruitField.getCombo();
   scoreOverlayEl.textContent = combo > 1
-    ? `Score: ${fruitField.getScore()}   Combo: ${combo}`
-    : `Score: ${fruitField.getScore()}`;
+    ? `🍉 Score: ${fruitField.getScore()}   Combo: ${combo}`
+    : `🍉 Score: ${fruitField.getScore()}`;
+
+  const lives = fruitField.getLives();
+  livesOverlayEl.innerHTML = Array.from({ length: 3 }, (_, i) =>
+    i < lives ? '🍉' : '<span class="lost">🍉</span>'
+  ).join('');
+
+  if (fruitField.isGameOver() && !gameOverOverlayEl.classList.contains('show')) {
+    finalScoreEl.textContent = `Final Score: ${fruitField.getScore()}`;
+    gameOverOverlayEl.classList.add('show');
+  }
 
   requestAnimationFrame(renderGame);
 }

@@ -1,7 +1,8 @@
-// Fruit field module: spawns colored fruit (and the occasional bomb) with
+// Fruit field module: spawns fruit (and the occasional bomb) with
 // gravity, checks a line segment (the blade stroke) against each for a
-// slice, and owns the splatter/combo/explosion juice that comes from a
-// hit. Rendering-only — the caller owns clearing the canvas and draw order.
+// slice, and owns the splatter/combo/explosion/lives juice that comes
+// from a hit or a miss. Rendering-only — the caller owns clearing the
+// canvas and draw order.
 function createFruitField(canvas) {
   const ctx = canvas.getContext('2d');
   const GRAVITY = 900;              // px/s^2
@@ -11,15 +12,23 @@ function createFruitField(canvas) {
   const PARTICLE_LIFETIME_MS = 500;
   const POPUP_LIFETIME_MS = 700;
   const FLASH_MS = 200;
+  const STARTING_LIVES = 3;
 
-  const COLORS = ['#ff5a5f', '#ffb347', '#8bd450', '#4fc3f7', '#c77dff'];
+  const FRUIT_KINDS = [
+    { name: 'watermelon', rind: '#2f8f3e', flesh: '#e0453e', seeds: true },
+    { name: 'lime', rind: '#6fae2e', flesh: '#c9e77a', seeds: true },
+    { name: 'apple', body: ['#ff7a5c', '#c0392b'], highlight: true, stem: true },
+    { name: 'orange', body: ['#ffc266', '#e8850c'], highlight: true }
+  ];
   const EXPLOSION_COLORS = ['#ff4444', '#ff8800', '#ffcc00', '#555555'];
 
-  let objects = [];   // { x, y, vx, vy, w, h, type: 'fruit'|'bomb', color, alive }
+  let objects = [];   // { x, y, vx, vy, w, h, type: 'fruit'|'bomb', kind, color, seedOffset, alive }
   let particles = []; // { x, y, vx, vy, color, size, start }
   let popups = [];    // { text, x, y, start }
   let score = 0;
   let combo = 0;
+  let lives = STARTING_LIVES;
+  let gameOver = false;
   let lastHitTime = -Infinity;
   let lastSpawn = 0;
   let lastFrameTime = null;
@@ -31,6 +40,7 @@ function createFruitField(canvas) {
     const h = canvas.height;
     const size = 50 + Math.random() * 30;
     const isBomb = Math.random() < BOMB_CHANCE;
+    const kind = FRUIT_KINDS[Math.floor(Math.random() * FRUIT_KINDS.length)];
     objects.push({
       x: 60 + Math.random() * (w - 120),
       y: h + size,
@@ -39,7 +49,9 @@ function createFruitField(canvas) {
       w: size,
       h: size,
       type: isBomb ? 'bomb' : 'fruit',
-      color: isBomb ? '#1a1a1a' : COLORS[Math.floor(Math.random() * COLORS.length)],
+      kind,
+      color: isBomb ? '#1a1a1a' : (kind.flesh || kind.body[0]),
+      seedOffset: Math.random() * Math.PI * 2,
       alive: true
     });
   }
@@ -78,8 +90,18 @@ function createFruitField(canvas) {
     }
   }
 
-  function spawnPopup(text, x, y) {
-    popups.push({ text, x, y, start: performance.now() });
+  function spawnPopup(text, x, y, tone) {
+    popups.push({ text, x, y, start: performance.now(), tone: tone || 'combo' });
+  }
+
+  function loseLife() {
+    if (gameOver) return;
+    lives = Math.max(0, lives - 1);
+    combo = 0;
+    if (lives === 0) {
+      gameOver = true;
+      paused = true;
+    }
   }
 
   function update(now) {
@@ -99,7 +121,18 @@ function createFruitField(canvas) {
       o.x += o.vx * dt;
       o.y += o.vy * dt;
     }
-    objects = objects.filter((o) => o.alive && o.y - o.h / 2 < canvas.height + 100);
+
+    const kept = [];
+    for (const o of objects) {
+      if (!o.alive) continue;
+      const offBottom = o.y - o.h / 2 >= canvas.height + 100;
+      if (offBottom) {
+        if (o.type === 'fruit') loseLife();
+        continue;
+      }
+      kept.push(o);
+    }
+    objects = kept;
 
     for (const p of particles) {
       p.vy += GRAVITY * dt;
@@ -134,15 +167,78 @@ function createFruitField(canvas) {
     ctx.fill();
   }
 
+  function drawFruit(o) {
+    const r = o.w / 2;
+    const kind = o.kind;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+
+    if (kind.rind) {
+      ctx.fillStyle = kind.rind;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = kind.flesh;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (kind.seeds) {
+        ctx.fillStyle = 'rgba(25, 20, 15, 0.85)';
+        for (let i = 0; i < 5; i++) {
+          const a = (Math.PI * 2 * i) / 5 + o.seedOffset;
+          const sx = Math.cos(a) * r * 0.42;
+          const sy = Math.sin(a) * r * 0.42;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy, 2.2, 3.6, a, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else {
+      const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      grad.addColorStop(0, kind.body[0]);
+      grad.addColorStop(1, kind.body[1]);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (kind.highlight) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(-r * 0.35, -r * 0.35, r * 0.22, r * 0.14, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (kind.stem) {
+        ctx.strokeStyle = '#5a3820';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.lineTo(2, -r - 8);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   function render() {
     for (const o of objects) {
       if (o.type === 'bomb') {
         drawBomb(o);
       } else {
-        ctx.fillStyle = o.color;
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, o.w / 2, 0, Math.PI * 2);
-        ctx.fill();
+        drawFruit(o);
       }
     }
 
@@ -157,13 +253,27 @@ function createFruitField(canvas) {
     }
 
     ctx.textAlign = 'center';
-    ctx.font = 'bold 28px monospace';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 22px Georgia, serif';
     for (const p of popups) {
       const t = (now - p.start) / POPUP_LIFETIME_MS;
+      const alpha = 1 - t;
       const riseY = p.y - t * 30;
-      ctx.fillStyle = `rgba(255, 209, 102, ${1 - t})`;
-      ctx.fillText(p.text, p.x, riseY);
+      const textWidth = ctx.measureText(p.text).width;
+      const bw = textWidth + 28;
+      const bh = 34;
+
+      ctx.fillStyle = `rgba(120, 15, 15, ${0.8 * alpha})`;
+      roundRect(p.x - bw / 2, riseY - bh / 2, bw, bh, 8);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 220, 160, ${0.7 * alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = `rgba(255, 235, 190, ${alpha})`;
+      ctx.fillText(p.text, p.x, riseY + 1);
     }
+    ctx.textBaseline = 'alphabetic';
 
     if (now < flashUntil) {
       const alpha = 0.5 * ((flashUntil - now) / FLASH_MS);
@@ -226,7 +336,7 @@ function createFruitField(canvas) {
     if (bomb) {
       spawnExplosion(bomb);
       flashUntil = performance.now() + FLASH_MS;
-      paused = true;
+      loseLife();
       return { hits: 0, bombHit: true };
     }
 
@@ -250,6 +360,8 @@ function createFruitField(canvas) {
     popups = [];
     score = 0;
     combo = 0;
+    lives = STARTING_LIVES;
+    gameOver = false;
     lastHitTime = -Infinity;
     lastSpawn = 0;
     lastFrameTime = null;
@@ -263,6 +375,8 @@ function createFruitField(canvas) {
     sliceCheck,
     reset,
     getScore: () => score,
-    getCombo: () => combo
+    getCombo: () => combo,
+    getLives: () => lives,
+    isGameOver: () => gameOver
   };
 }

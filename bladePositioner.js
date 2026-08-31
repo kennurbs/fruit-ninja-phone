@@ -83,6 +83,9 @@ function createBladePositioner(canvas) {
       const alpha = 1 - t;
       const { x1, y1, x2, y2 } = endpointsFor(s.cx, s.cy, s.angle);
 
+      ctx.save();
+      ctx.shadowColor = `rgba(255, 255, 255, ${alpha})`;
+      ctx.shadowBlur = 14;
       ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
       ctx.lineWidth = 5;
       ctx.lineCap = 'round';
@@ -90,6 +93,7 @@ function createBladePositioner(canvas) {
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
+      ctx.restore();
     }
   }
 
